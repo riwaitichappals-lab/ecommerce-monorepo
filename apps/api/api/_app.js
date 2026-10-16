@@ -1,5 +1,6 @@
 // Shared bootstrap for Vercel functions. Files prefixed with "_" are not routed.
 // Imports the compiled output (`pnpm build` → dist/), which vercel.json bundles via includeFiles.
+import { waitUntil } from '@vercel/functions'
 import { loadConfig } from '../dist/app/config.js'
 import { buildApp } from '../dist/app/server.js'
 import { createSupabaseTokenVerifier } from '../dist/lib/auth/token-verifier.js'
@@ -17,6 +18,8 @@ export function getApp() {
       db,
       tokenVerifier: createSupabaseTokenVerifier({ supabaseUrl: config.supabase.url, jwtSecret: config.supabase.jwtSecret }),
       imagekit: createImageKitClient(config.imagekit),
+      // Keeps the storefront cache-purge call alive after the response is sent.
+      waitUntil,
     })
     await built.app.ready()
     return built

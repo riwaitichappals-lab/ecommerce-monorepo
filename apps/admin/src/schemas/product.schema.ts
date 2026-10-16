@@ -30,6 +30,8 @@ export const productFormSchema = z
       .int('Stock must be a whole number')
       .min(0)
       .max(1_000_000),
+    isFeatured: z.boolean(),
+    isBestSeller: z.boolean(),
   })
   .refine((data) => data.compareAtPrice === null || data.compareAtPrice > data.price, {
     message: 'Compare-at price must be greater than the price',

@@ -5,6 +5,7 @@ import {
   listEnvelope,
   moneySchema,
   paginationQuery,
+  queryBoolean,
   searchQuery,
   slugSchema,
   uuidParam,
@@ -35,6 +36,7 @@ export const adminProductListQuery = z.object({
   search: searchQuery,
   status: productStatusSchema.optional(),
   categoryId: uuidParam.optional(),
+  featured: queryBoolean.optional().describe('Only featured (true) or only non-featured (false) products'),
   sort: z.enum(PRODUCT_SORTS).default('updated-desc'),
 })
 
@@ -45,7 +47,11 @@ export const storeProductListQuery = z
     category: slugSchema.optional().describe('Category slug'),
     minPrice: z.coerce.number().nonnegative().optional(),
     maxPrice: z.coerce.number().nonnegative().optional(),
-    sort: z.enum(['newest', 'price-asc', 'price-desc', 'name-asc']).default('newest'),
+    featured: queryBoolean.optional().describe('Only featured (true) or only non-featured (false) products'),
+    sort: z
+      .enum(['newest', 'price-asc', 'price-desc', 'name-asc', 'featured', 'best-seller'])
+      .default('newest')
+      .describe('featured / best-seller put flagged products first'),
   })
   .refine((q) => q.minPrice === undefined || q.maxPrice === undefined || q.minPrice <= q.maxPrice, {
     message: 'minPrice must be less than or equal to maxPrice',
@@ -121,6 +127,8 @@ const productFields = {
   categoryId: uuidParam.nullable(),
   status: productStatusSchema,
   stock: z.number().int().min(0).max(1_000_000),
+  isFeatured: z.boolean(),
+  isBestSeller: z.boolean(),
 }
 
 export const createProductBody = z
@@ -131,6 +139,8 @@ export const createProductBody = z
     categoryId: productFields.categoryId.default(null),
     status: productFields.status.default('draft'),
     stock: productFields.stock.default(0),
+    isFeatured: productFields.isFeatured.default(false),
+    isBestSeller: productFields.isBestSeller.default(false),
     colors: z.array(newColorBody).max(MAX_COLORS).default([]),
   })
   .refine((body) => body.compareAtPrice === null || body.compareAtPrice > body.price, {
@@ -150,6 +160,8 @@ export const updateProductBody = z
     categoryId: productFields.categoryId.optional(),
     status: productFields.status.optional(),
     stock: productFields.stock.optional(),
+    isFeatured: productFields.isFeatured.optional(),
+    isBestSeller: productFields.isBestSeller.optional(),
     colors: z
       .array(syncColorBody)
       .max(MAX_COLORS)
@@ -196,6 +208,8 @@ export const adminProductSchema = z.object({
   category: categoryRef.nullable(),
   status: productStatusSchema,
   stock: z.number().int(),
+  isFeatured: z.boolean(),
+  isBestSeller: z.boolean(),
   publishedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -213,6 +227,8 @@ export const adminProductListItemSchema = z.object({
   price: z.number(),
   compareAtPrice: z.number().nullable(),
   stock: z.number().int(),
+  isFeatured: z.boolean(),
+  isBestSeller: z.boolean(),
   category: categoryRef.nullable(),
   primaryImageUrl: z.string().nullable(),
   colorCount: z.number().int(),
@@ -258,6 +274,8 @@ export const storeProductSchema = z.object({
   currency: z.string(),
   sku: z.string(),
   inStock: z.boolean(),
+  isFeatured: z.boolean(),
+  isBestSeller: z.boolean(),
   category: publicCategoryRef.nullable(),
   colors: z.array(storeColorSchema),
 })
@@ -270,6 +288,8 @@ export const storeProductListItemSchema = z.object({
   compareAtPrice: z.number().nullable(),
   currency: z.string(),
   inStock: z.boolean(),
+  isFeatured: z.boolean(),
+  isBestSeller: z.boolean(),
   category: publicCategoryRef.nullable(),
   imageUrl: z.string().nullable(),
   thumbUrl: z.string().nullable(),

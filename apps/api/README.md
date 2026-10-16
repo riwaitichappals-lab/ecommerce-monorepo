@@ -23,3 +23,7 @@ npm run dev                   # http://localhost:4000  (Swagger UI at /docs)
 | `npm run db:migrate` / `npm run db:seed` | Apply migrations / load dev data |
 | `npm run admin:create` | Grant, change, or revoke admin access for a Supabase user |
 | `npm run assets:cleanup` | Retry pending ImageKit deletions |
+
+## Storefront cache purge
+
+After every admin write that changes what the storefront shows (products, colors, images, categories, and orders that change stock) the API calls the storefront's revalidation webhook (`POST FRONTEND_REVALIDATE_URL`, header `x-revalidate-secret`, body `{ "tags": [...] }`). Set `FRONTEND_REVALIDATE_URL` and `REVALIDATE_SECRET` (the same value as in the storefront's `.env`); if either is missing the call is skipped and one warning is logged at startup. The call is fire-and-forget (5 s timeout, up to 3 attempts) and never fails an admin request. See [environment variables](./docs/development/environment.md).

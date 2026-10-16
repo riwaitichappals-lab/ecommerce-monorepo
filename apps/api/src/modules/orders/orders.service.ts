@@ -2,6 +2,7 @@ import type { Database } from '../../lib/db.js'
 import { AppError, notFound } from '../../lib/errors.js'
 import { fromCents, toCents } from '../../lib/money.js'
 import type { PageRequest } from '../../lib/pagination.js'
+import type { StorefrontRevalidator } from '../../lib/storefront-revalidate.js'
 import { ORDER_TRANSITIONS, canTransition } from './order-status.js'
 import type { OrdersRepository } from './orders.repository.js'
 import type { CheckoutInput, OrderItemRecord, OrderListFilters, OrderStatus } from './orders.types.js'
@@ -26,6 +27,7 @@ export class OrdersService {
     private readonly db: Database,
     private readonly repository: OrdersRepository,
     private readonly commerce: CommerceSettings,
+    private readonly revalidator: StorefrontRevalidator,
   ) {}
 
   list(filters: OrderListFilters, page: PageRequest) {
@@ -44,6 +46,7 @@ export class OrdersService {
   }
 
   async updateStatus(id: string, input: { status: OrderStatus; note?: string | undefined }, adminId: string) {
+    let restockedSlugs: string[] | null = null
     await this.db.transaction(async (tx) => {
       const order = await this.repository.lockOrder(tx, id)
       if (!order) throw notFound('Order')
@@ -66,8 +69,13 @@ export class OrdersService {
         changedBy: adminId,
         note: input.note ?? null,
       })
-      if (input.status === 'cancelled') await this.repository.restockItems(tx, id)
+      if (input.status === 'cancelled') {
+        await this.repository.restockItems(tx, id)
+        restockedSlugs = await this.repository.productSlugsForOrder(tx, id)
+      }
     })
+    // Restocking changes availability on the storefront.
+    if (restockedSlugs) this.revalidator.revalidateStorefront({ productSlugs: restockedSlugs })
     return this.getById(id)
   }
 
@@ -89,7 +97,9 @@ export class OrdersService {
     const productIds = [...new Set([...lines.values()].map((line) => line.productId))]
     const colorIds = [...new Set([...lines.values()].flatMap((line) => (line.colorId ? [line.colorId] : [])))]
 
-    return this.db.transaction(async (tx) => {
+    const orderedSlugs: string[] = []
+
+    const result = await this.db.transaction(async (tx) => {
       const products = new Map(
         (await this.repository.lockProductsForCheckout(tx, productIds)).map((product) => [product.id, product]),
       )
@@ -154,6 +164,7 @@ export class OrdersService {
 
       for (const [productId, quantity] of requestedPerProduct) {
         await this.repository.decrementStock(tx, productId, quantity)
+        orderedSlugs.push(products.get(productId)!.slug)
       }
 
       const email = input.customer.email.toLowerCase()
@@ -212,5 +223,9 @@ export class OrdersService {
         createdAt: order.createdAt.toISOString(),
       }
     })
+
+    // Stock changed: refresh the storefront (after the commit, never inside the transaction).
+    this.revalidator.revalidateStorefront({ productSlugs: orderedSlugs })
+    return result
   }
 }

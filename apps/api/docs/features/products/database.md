@@ -23,6 +23,8 @@ Why three levels: a color has its own data (name, hex, order) and its own galler
 | `category_id` | uuid | FK → `categories.id` **ON DELETE RESTRICT**, null | |
 | `status` | `product_status` | not null, default `draft` | `draft` \| `published` \| `archived` |
 | `stock` | integer | not null, default 0, `>= 0` | decremented at checkout, restored on cancel |
+| `is_featured` | boolean | not null, default false | manual "featured" flag; partial index `products_featured_idx` |
+| `is_best_seller` | boolean | not null, default false | manual "best seller" tag; partial index `products_best_seller_idx` |
 | `published_at` | timestamptz | null | set the first time the product is published |
 | `created_at`, `updated_at` | timestamptz | not null, `now()`; `updated_at` via trigger | any color/image change also bumps the product's `updated_at` |
 

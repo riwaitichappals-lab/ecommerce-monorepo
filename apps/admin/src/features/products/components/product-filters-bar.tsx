@@ -19,6 +19,8 @@ const sortOptions = [
   { value: 'name-desc', label: 'Name (Z–A)' },
   { value: 'price-asc', label: 'Price (low to high)' },
   { value: 'price-desc', label: 'Price (high to low)' },
+  { value: 'featured', label: 'Featured first' },
+  { value: 'best-seller', label: 'Best sellers first' },
 ]
 
 export function ProductFiltersBar() {

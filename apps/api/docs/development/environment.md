@@ -2,7 +2,7 @@
 
 Parsed and validated at startup by `src/app/config.ts`. Invalid or missing values stop the process with a list of problems. An empty value (`KEY=`) counts as unset. Template: [`.env.example`](../../../../.env.example) (monorepo root; shared with the admin app).
 
-**Secrets** (never commit, never expose to a frontend): `DATABASE_URL`, `IMAGEKIT_PRIVATE_KEY`, `SUPABASE_JWT_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`.
+**Secrets** (never commit, never expose to a frontend): `DATABASE_URL`, `IMAGEKIT_PRIVATE_KEY`, `SUPABASE_JWT_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, `REVALIDATE_SECRET`.
 
 ## Server
 
@@ -50,6 +50,8 @@ Parsed and validated at startup by `src/app/config.ts`. Invalid or missing value
 | `RATE_LIMIT_WINDOW` | | `1 minute` | e.g. `1 minute`, `30 seconds` |
 | `CHECKOUT_RATE_LIMIT_MAX` | | `10` | Checkout requests per IP per minute |
 | `STORE_CACHE_MAX_AGE` | | `60` | Seconds of public caching for storefront GETs; `0` → `no-cache` |
+| `FRONTEND_REVALIDATE_URL` | | — | Storefront revalidation webhook, e.g. `https://shop.example.com/api/revalidate`. Called after catalogue writes. Skipped (one startup warning) unless `REVALIDATE_SECRET` is also set |
+| `REVALIDATE_SECRET` | | — | Shared secret sent as `x-revalidate-secret`. Must equal the storefront's `REVALIDATE_SECRET`. Server-side only; never give it a `VITE_` copy |
 | `ENABLE_API_DOCS` | | `true` outside production | Serve Swagger UI at `/docs` |
 
 ## Commerce

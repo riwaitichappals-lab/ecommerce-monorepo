@@ -23,6 +23,8 @@ const STORE_SORT: Record<StoreProductListQuery['sort'], ProductSort> = {
   'price-asc': 'price-asc',
   'price-desc': 'price-desc',
   'name-asc': 'name-asc',
+  featured: 'featured',
+  'best-seller': 'best-seller',
 }
 
 /**
@@ -40,7 +42,13 @@ export function createProductsController(
       setNoStore(reply)
       const page = { page: query.page, pageSize: query.pageSize }
       const result = await service.list(
-        { search: query.search, status: query.status, categoryId: query.categoryId, sort: query.sort },
+        {
+          search: query.search,
+          status: query.status,
+          categoryId: query.categoryId,
+          featured: query.featured,
+          sort: query.sort,
+        },
         page,
       )
       return paginated({ items: result.items.map(toAdminProductListItem), total: result.total }, page)
@@ -108,6 +116,7 @@ export function createProductsController(
           categorySlug: query.category,
           minPrice: query.minPrice,
           maxPrice: query.maxPrice,
+          featured: query.featured,
           sort: STORE_SORT[query.sort],
         },
         page,

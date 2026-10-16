@@ -1,6 +1,7 @@
 import type { Database, Executor } from '../../lib/db.js'
 import { businessRule, notFound, translateDatabaseError } from '../../lib/errors.js'
 import type { Page, PageRequest } from '../../lib/pagination.js'
+import type { StorefrontRevalidator } from '../../lib/storefront-revalidate.js'
 import type { AssetCleanupService } from '../uploads/asset-cleanup.service.js'
 import type { UploadsService } from '../uploads/uploads.service.js'
 import type { ProductsRepository } from './products.repository.js'
@@ -54,6 +55,7 @@ export class ProductsService {
     private readonly repository: ProductsRepository,
     private readonly uploads: UploadsService,
     private readonly assets: AssetCleanupService,
+    private readonly revalidator: StorefrontRevalidator,
   ) {}
 
   // --- reads ------------------------------------------------------------------
@@ -94,6 +96,8 @@ export class ProductsService {
           categoryId: input.categoryId,
           status: input.status,
           stock: input.stock,
+          isFeatured: input.isFeatured,
+          isBestSeller: input.isBestSeller,
         })
         for (const [index, color] of colors.entries()) {
           await this.insertColorWithImages(tx, productId, color, color.sortOrder ?? index)
@@ -102,6 +106,7 @@ export class ProductsService {
       })
       .catch((error) => translateDatabaseError(error, CONSTRAINT_MESSAGES))
 
+    this.revalidator.revalidateStorefront({ productSlugs: [input.slug] })
     return this.getById(id)
   }
 
@@ -113,7 +118,7 @@ export class ProductsService {
       (await this.uploads.validateImages(newImages as NewImageInput[])).map((image) => [image.imageKitFileId, image]),
     )
 
-    const removedFileIds = await this.db
+    const { removedFileIds, previousSlug } = await this.db
       .transaction(async (tx) => {
         const current = await this.repository.lockProduct(tx, id)
         if (!current) throw notFound('Product')
@@ -126,7 +131,7 @@ export class ProductsService {
         if (input.categoryId) await this.assertCategoryExists(tx, input.categoryId)
 
         const patch: Record<string, unknown> = {}
-        for (const key of ['name', 'slug', 'description', 'price', 'compareAtPrice', 'sku', 'categoryId', 'status', 'stock'] as const) {
+        for (const key of ['name', 'slug', 'description', 'price', 'compareAtPrice', 'sku', 'categoryId', 'status', 'stock', 'isFeatured', 'isBestSeller'] as const) {
           if (input[key] !== undefined) patch[key] = input[key]
         }
         await this.repository.updateProduct(tx, id, patch)
@@ -140,24 +145,31 @@ export class ProductsService {
         }
 
         await this.assets.enqueue(tx, removed)
-        return removed
+        return { removedFileIds: removed, previousSlug: current.slug }
       })
       .catch((error) => translateDatabaseError(error, CONSTRAINT_MESSAGES))
 
+    // Old and new slug: a renamed product's old page must be purged too.
+    this.revalidator.revalidateStorefront({
+      productSlugs: [previousSlug, input.slug ?? previousSlug],
+      categories: input.categoryId !== undefined,
+    })
     await this.assets.deleteNow(removedFileIds)
     return this.getById(id)
   }
 
   async delete(id: string): Promise<void> {
-    const fileIds = await this.db.transaction(async (tx) => {
-      if (!(await this.repository.lockProduct(tx, id))) throw notFound('Product')
+    const { fileIds, slug } = await this.db.transaction(async (tx) => {
+      const product = await this.repository.lockProduct(tx, id)
+      if (!product) throw notFound('Product')
       const ids = await this.repository.listImageFileIdsForProduct(tx, id)
       // Colors and images cascade. Order items keep their snapshot and the
       // product_id link becomes null.
       await this.repository.deleteProduct(tx, id)
       await this.assets.enqueue(tx, ids)
-      return ids
+      return { fileIds: ids, slug: product.slug }
     })
+    this.revalidator.revalidateStorefront({ productSlugs: [slug] })
     await this.assets.deleteNow(fileIds)
   }
 
@@ -166,7 +178,7 @@ export class ProductsService {
   async addColor(productId: string, input: NewColorInput): Promise<ProductColorRecord> {
     const [color] = await this.validateNewColors([input])
 
-    const colorId = await this.db
+    const { colorId, slug } = await this.db
       .transaction(async (tx) => {
         const product = await this.repository.lockProduct(tx, productId)
         if (!product) throw notFound('Product')
@@ -176,27 +188,30 @@ export class ProductsService {
         const sortOrder = color!.sortOrder ?? (await this.repository.nextColorSortOrder(tx, productId))
         const id = await this.insertColorWithImages(tx, productId, color!, sortOrder)
         await this.repository.updateProduct(tx, productId, {})
-        return id
+        return { colorId: id, slug: product.slug }
       })
       .catch((error) => translateDatabaseError(error, CONSTRAINT_MESSAGES))
 
+    this.revalidator.revalidateStorefront({ productSlugs: [slug] })
     return this.loadColor(productId, colorId)
   }
 
   async updateColor(productId: string, colorId: string, input: UpdateColorInput): Promise<ProductColorRecord> {
-    await this.db
+    const slug = await this.db
       .transaction(async (tx) => {
-        await this.lockProductAndColor(tx, productId, colorId)
+        const product = await this.lockProductAndColor(tx, productId, colorId)
         await this.repository.updateColor(tx, colorId, input)
         await this.repository.updateProduct(tx, productId, {})
+        return product.slug
       })
       .catch((error) => translateDatabaseError(error, CONSTRAINT_MESSAGES))
 
+    this.revalidator.revalidateStorefront({ productSlugs: [slug] })
     return this.loadColor(productId, colorId)
   }
 
   async deleteColor(productId: string, colorId: string): Promise<void> {
-    const fileIds = await this.db.transaction(async (tx) => {
+    const { fileIds, slug } = await this.db.transaction(async (tx) => {
       const product = await this.lockProductAndColor(tx, productId, colorId)
       if (product.status === 'published') {
         const colors = await this.repository.colorImageCounts(tx, productId)
@@ -208,8 +223,9 @@ export class ProductsService {
       await this.repository.deleteColor(tx, colorId)
       await this.repository.updateProduct(tx, productId, {})
       await this.assets.enqueue(tx, ids)
-      return ids
+      return { fileIds: ids, slug: product.slug }
     })
+    this.revalidator.revalidateStorefront({ productSlugs: [slug] })
     await this.assets.deleteNow(fileIds)
   }
 
@@ -218,9 +234,9 @@ export class ProductsService {
   async addImage(productId: string, colorId: string, input: NewImageInput): Promise<ProductImageRecord> {
     const [image] = await this.uploads.validateImages([input])
 
-    const imageId = await this.db
+    const { imageId, slug } = await this.db
       .transaction(async (tx) => {
-        await this.lockProductAndColor(tx, productId, colorId)
+        const product = await this.lockProductAndColor(tx, productId, colorId)
         const existingCount = await this.repository.countImages(tx, colorId)
         const isPrimary = image!.isPrimary === true || existingCount === 0
         if (isPrimary) await this.repository.clearPrimary(tx, colorId)
@@ -232,16 +248,17 @@ export class ProductsService {
           isPrimary,
         })
         await this.repository.updateProduct(tx, productId, {})
-        return id
+        return { imageId: id, slug: product.slug }
       })
       .catch((error) => translateDatabaseError(error, CONSTRAINT_MESSAGES))
 
+    this.revalidator.revalidateStorefront({ productSlugs: [slug] })
     return this.loadImage(imageId)
   }
 
   async updateImage(productId: string, colorId: string, imageId: string, input: UpdateImageInput): Promise<ProductImageRecord> {
-    await this.db.transaction(async (tx) => {
-      await this.lockProductAndColor(tx, productId, colorId)
+    const slug = await this.db.transaction(async (tx) => {
+      const product = await this.lockProductAndColor(tx, productId, colorId)
       const image = await this.repository.findImage(tx, colorId, imageId)
       if (!image) throw notFound('Image')
 
@@ -253,7 +270,9 @@ export class ProductsService {
         await this.repository.ensurePrimary(tx, colorId)
       }
       await this.repository.updateProduct(tx, productId, {})
+      return product.slug
     })
+    this.revalidator.revalidateStorefront({ productSlugs: [slug] })
     return this.loadImage(imageId)
   }
 
@@ -262,10 +281,10 @@ export class ProductsService {
    * as the product and color exist.
    */
   async deleteImage(productId: string, colorId: string, imageId: string): Promise<void> {
-    const fileIds = await this.db.transaction(async (tx) => {
+    const { fileIds, slug } = await this.db.transaction(async (tx) => {
       const product = await this.lockProductAndColor(tx, productId, colorId)
       const image = await this.repository.findImage(tx, colorId, imageId)
-      if (!image) return []
+      if (!image) return { fileIds: [] as string[], slug: null as string | null }
 
       if (product.status === 'published' && (await this.repository.countImages(tx, colorId)) <= 1) {
         throw businessRule(
@@ -277,8 +296,10 @@ export class ProductsService {
       if (image.isPrimary) await this.repository.ensurePrimary(tx, colorId)
       await this.repository.updateProduct(tx, productId, {})
       await this.assets.enqueue(tx, [image.imageKitFileId])
-      return [image.imageKitFileId]
+      return { fileIds: [image.imageKitFileId], slug: product.slug as string | null }
     })
+    // Already-gone image: nothing changed, nothing to purge.
+    if (slug) this.revalidator.revalidateStorefront({ productSlugs: [slug] })
     await this.assets.deleteNow(fileIds)
   }
 

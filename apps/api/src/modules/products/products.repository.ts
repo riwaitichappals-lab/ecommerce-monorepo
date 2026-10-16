@@ -26,7 +26,7 @@ function productDetailQuery(sql: Executor, where: Fragment) {
       p.id, p.name, p.slug, p.description,
       p.price::float8 as price,
       p.compare_at_price::float8 as compare_at_price,
-      p.sku, p.category_id, p.status, p.stock,
+      p.sku, p.category_id, p.status, p.stock, p.is_featured, p.is_best_seller,
       p.published_at, p.created_at, p.updated_at,
       case when c.id is null then null
            else json_build_object('id', c.id, 'name', c.name, 'slug', c.slug) end as category,
@@ -72,6 +72,10 @@ function orderBy(sql: Executor, sort: ProductSort) {
       return sql`p.created_at desc, p.id`
     case 'updated-desc':
       return sql`p.updated_at desc, p.id`
+    case 'featured':
+      return sql`p.is_featured desc, p.created_at desc, p.id`
+    case 'best-seller':
+      return sql`p.is_best_seller desc, p.created_at desc, p.id`
   }
 }
 
@@ -80,6 +84,7 @@ function listConditions(sql: Executor, filters: ProductListFilters) {
   if (filters.publishedOnly) conditions.push(sql`p.status = 'published'`)
   if (filters.status) conditions.push(sql`p.status = ${filters.status}`)
   if (filters.categoryId) conditions.push(sql`p.category_id = ${filters.categoryId}`)
+  if (filters.featured !== undefined) conditions.push(sql`p.is_featured = ${filters.featured}`)
   if (filters.categorySlug) conditions.push(sql`c.slug = ${filters.categorySlug} and c.is_active`)
   if (filters.minPrice !== undefined) conditions.push(sql`p.price >= ${filters.minPrice}`)
   if (filters.maxPrice !== undefined) conditions.push(sql`p.price <= ${filters.maxPrice}`)
@@ -110,7 +115,7 @@ export const productsRepository = {
           p.id, p.name, p.slug, p.sku, p.status,
           p.price::float8 as price,
           p.compare_at_price::float8 as compare_at_price,
-          p.stock, p.created_at, p.updated_at,
+          p.stock, p.is_featured, p.is_best_seller, p.created_at, p.updated_at,
           case when c.id is null then null
                else json_build_object('id', c.id, 'name', c.name, 'slug', c.slug) end as category,
           (
@@ -148,11 +153,11 @@ export const productsRepository = {
   async lockProduct(
     sql: Executor,
     id: string,
-  ): Promise<{ id: string; status: ProductStatus; price: number; compareAtPrice: number | null; publishedAt: Date | null } | null> {
+  ): Promise<{ id: string; slug: string; status: ProductStatus; price: number; compareAtPrice: number | null; publishedAt: Date | null } | null> {
     const [row] = await sql<
-      { id: string; status: ProductStatus; price: number; compareAtPrice: number | null; publishedAt: Date | null }[]
+      { id: string; slug: string; status: ProductStatus; price: number; compareAtPrice: number | null; publishedAt: Date | null }[]
     >`
-      select id, status, price::float8 as price, compare_at_price::float8 as compare_at_price, published_at
+      select id, slug, status, price::float8 as price, compare_at_price::float8 as compare_at_price, published_at
       from products
       where id = ${id}
       for update
@@ -177,13 +182,15 @@ export const productsRepository = {
       categoryId: string | null
       status: ProductStatus
       stock: number
+      isFeatured: boolean
+      isBestSeller: boolean
     },
   ): Promise<string> {
     const [row] = await sql<{ id: string }[]>`
-      insert into products (name, slug, description, price, compare_at_price, sku, category_id, status, stock, published_at)
+      insert into products (name, slug, description, price, compare_at_price, sku, category_id, status, stock, is_featured, is_best_seller, published_at)
       values (
         ${data.name}, ${data.slug}, ${data.description}, ${data.price}, ${data.compareAtPrice},
-        ${data.sku}, ${data.categoryId}, ${data.status}, ${data.stock},
+        ${data.sku}, ${data.categoryId}, ${data.status}, ${data.stock}, ${data.isFeatured}, ${data.isBestSeller},
         ${data.status === 'published' ? sql`now()` : null}
       )
       returning id

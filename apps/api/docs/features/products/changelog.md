@@ -1,5 +1,18 @@
 # Products Changelog
 
+## 2026-10-15
+
+### Added
+
+- `products.is_featured` and `products.is_best_seller` boolean flags (migration `0002_product_featured_best_seller`, default `false`).
+- `isFeatured` / `isBestSeller` accepted on `POST /api/admin/products` and `PATCH /api/admin/products/:id`, and returned on admin and storefront product responses (list and detail).
+- `sort=featured` and `sort=best-seller` on `GET /api/products` and `GET /api/store/products` (flagged products first, newest first within each group).
+- `featured=true|false` filter on both list endpoints.
+
+### Frontend impact
+
+- Non-breaking: new optional request fields and new response fields. Run migration `0002` before deploying the API.
+
 ## 2026-09-23
 
 ### Added

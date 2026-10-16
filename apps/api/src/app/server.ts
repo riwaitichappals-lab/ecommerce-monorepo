@@ -33,6 +33,10 @@ export interface AppDependencies {
   imagekit: ImageKitClient
   /** Test seam: replace individual repositories with fakes. */
   repositories?: Partial<Repositories>
+  /** Test seam: replaces the global fetch used for the storefront webhook. */
+  fetch?: typeof fetch
+  /** Serverless platforms: keeps the webhook call alive after the response is sent. */
+  waitUntil?: (promise: Promise<unknown>) => void
 }
 
 export interface App {

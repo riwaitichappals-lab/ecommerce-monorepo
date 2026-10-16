@@ -193,7 +193,7 @@ describe('storefront checkout (POST /api/store/orders)', () => {
 
   function stubCatalog(overrides: Record<string, unknown> = {}) {
     t.repos.orders.lockProductsForCheckout.mockResolvedValue([
-      { id: IDS.product, name: 'Classic T Shirt', sku: 'TSHIRT-001', price: 19.99, stock: 5, status: 'published', colorCount: 2, ...overrides },
+      { id: IDS.product, name: 'Classic T Shirt', slug: 'classic-t-shirt', sku: 'TSHIRT-001', price: 19.99, stock: 5, status: 'published', colorCount: 2, ...overrides },
     ])
     t.repos.orders.findColorsForCheckout.mockResolvedValue([
       { id: IDS.colorBlack, productId: IDS.product, name: 'Black', hexValue: '#000000', imageUrl: 'https://ik.imagekit.io/test-shop/b.jpg' },

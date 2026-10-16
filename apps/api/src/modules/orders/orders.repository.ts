@@ -48,6 +48,7 @@ const ITEM_COLUMNS = (sql: Executor) => sql`
 export interface CheckoutProductRow {
   id: string
   name: string
+  slug: string
   sku: string
   price: number
   stock: number
@@ -159,12 +160,23 @@ export const ordersRepository = {
     `
   },
 
+  /** Slugs of the products an order contains (for storefront cache purging). */
+  async productSlugsForOrder(sql: Executor, orderId: string): Promise<string[]> {
+    const rows = await sql<{ slug: string }[]>`
+      select distinct p.slug
+      from order_items oi
+      join products p on p.id = oi.product_id
+      where oi.order_id = ${orderId}
+    `
+    return rows.map((row) => row.slug)
+  },
+
   // --- checkout -----------------------------------------------------------------
 
   /** Locks the products in a consistent order to avoid deadlocks between checkouts. */
   async lockProductsForCheckout(sql: Executor, productIds: string[]): Promise<CheckoutProductRow[]> {
     return sql<CheckoutProductRow[]>`
-      select p.id, p.name, p.sku, p.price::float8 as price, p.stock, p.status,
+      select p.id, p.name, p.slug, p.sku, p.price::float8 as price, p.stock, p.status,
              (select count(*)::int from product_colors pc where pc.product_id = p.id) as color_count
       from products p
       where p.id = any(${sql.array(productIds)}::uuid[])

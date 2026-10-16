@@ -52,6 +52,14 @@ export const categoriesRepository = {
     return row ?? null
   },
 
+  /** Slugs of the published products in a category (for storefront cache purging). */
+  async listProductSlugs(sql: Executor, categoryId: string): Promise<string[]> {
+    const rows = await sql<{ slug: string }[]>`
+      select slug from products where category_id = ${categoryId} and status = 'published'
+    `
+    return rows.map((row) => row.slug)
+  },
+
   async insert(sql: Executor, data: CreateCategoryInput): Promise<string> {
     const [row] = await sql<{ id: string }[]>`
       insert into categories (name, slug, description, sort_order, is_active)

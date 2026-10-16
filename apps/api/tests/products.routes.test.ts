@@ -29,7 +29,7 @@ describe('GET /api/store/products/:slug (storefront product with colors and imag
     const { data } = (await t.app.inject({ method: 'GET', url: '/api/store/products/classic-t-shirt' })).json()
 
     expect(Object.keys(data).sort()).toEqual(
-      ['category', 'colors', 'compareAtPrice', 'currency', 'description', 'id', 'inStock', 'name', 'price', 'sku', 'slug'].sort(),
+      ['category', 'colors', 'compareAtPrice', 'currency', 'description', 'id', 'inStock', 'isBestSeller', 'isFeatured', 'name', 'price', 'sku', 'slug'].sort(),
     )
     expect(data.category).toEqual({ name: 'Shirts', slug: 'shirts' })
     expect(data.inStock).toBe(true)
@@ -116,7 +116,49 @@ describe('admin product reads', () => {
     expect(res.json()).toEqual({ data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } })
     expect(t.repos.products.list).toHaveBeenCalledWith(
       expect.anything(),
-      { search: 'tee', status: 'draft', categoryId: IDS.category, sort: 'name-asc' },
+      { search: 'tee', status: 'draft', categoryId: IDS.category, featured: undefined, sort: 'name-asc' },
+      { page: 1, pageSize: 20 },
+    )
+  })
+})
+
+describe('featured / best-seller flags', () => {
+  const flagged = (overrides: Record<string, unknown> = {}) => ({
+    ...productRecord({ isFeatured: true, isBestSeller: true, ...overrides }),
+    primaryImageUrl: null,
+    colors: [],
+  })
+
+  it('storefront list exposes the flags and passes sort=best-seller and featured=true through', async () => {
+    t.repos.products.list.mockResolvedValue({ items: [flagged()], total: 1 })
+
+    const res = await t.app.inject({ method: 'GET', url: '/api/store/products?sort=best-seller&featured=true' })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data[0]).toMatchObject({ isFeatured: true, isBestSeller: true })
+    expect(t.repos.products.list).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ publishedOnly: true, featured: true, sort: 'best-seller' }),
+      { page: 1, pageSize: 20 },
+    )
+  })
+
+  it('storefront accepts sort=featured and rejects a non-boolean featured value', async () => {
+    t.repos.products.list.mockResolvedValue({ items: [], total: 0 })
+    expect((await t.app.inject({ method: 'GET', url: '/api/store/products?sort=featured' })).statusCode).toBe(200)
+    expect((await t.app.inject({ method: 'GET', url: '/api/store/products?featured=yes' })).statusCode).toBe(422)
+  })
+
+  it('admin list supports the featured and best-seller sorts and the featured filter', async () => {
+    t.repos.products.list.mockResolvedValue({ items: [flagged()], total: 1 })
+
+    const res = await t.app.inject({ method: 'GET', url: '/api/products?sort=best-seller&featured=false', headers: bearer('staff') })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data[0]).toMatchObject({ isFeatured: true, isBestSeller: true })
+    expect(t.repos.products.list).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ featured: false, sort: 'best-seller' }),
       { page: 1, pageSize: 20 },
     )
   })
@@ -154,14 +196,14 @@ describe('admin product writes', () => {
     expect(res.headers.location).toBe(`/api/products/${IDS.product}`)
     expect(t.repos.products.insertProduct).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ status: 'draft', stock: 0, compareAtPrice: null, description: '' }),
+      expect.objectContaining({ status: 'draft', stock: 0, compareAtPrice: null, description: '', isFeatured: false, isBestSeller: false }),
     )
     // Hex colors are normalised to upper case.
     expect(t.repos.products.insertColor).toHaveBeenCalledWith(expect.anything(), IDS.product, { name: 'Black', hexValue: '#000', sortOrder: 0 })
   })
 
   it('PATCH /api/admin/products/:id/colors/:colorId updates a color', async () => {
-    t.repos.products.lockProduct.mockResolvedValue({ id: IDS.product, status: 'published', price: 25, compareAtPrice: null, publishedAt: null })
+    t.repos.products.lockProduct.mockResolvedValue({ id: IDS.product, slug: 'classic-t-shirt', status: 'published', price: 25, compareAtPrice: null, publishedAt: null })
     t.repos.products.findColor.mockResolvedValue({ id: IDS.colorBlack })
     t.repos.products.findById.mockResolvedValue(productRecord())
 
@@ -177,7 +219,7 @@ describe('admin product writes', () => {
   })
 
   it('DELETE image returns 204', async () => {
-    t.repos.products.lockProduct.mockResolvedValue({ id: IDS.product, status: 'draft', price: 25, compareAtPrice: null, publishedAt: null })
+    t.repos.products.lockProduct.mockResolvedValue({ id: IDS.product, slug: 'classic-t-shirt', status: 'draft', price: 25, compareAtPrice: null, publishedAt: null })
     t.repos.products.findColor.mockResolvedValue({ id: IDS.colorBlack })
     t.repos.products.findImage.mockResolvedValue(null)
     const res = await t.app.inject({

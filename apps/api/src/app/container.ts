@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify'
 import type { Database } from '../lib/db.js'
 import type { ImageKitClient } from '../lib/imagekit.js'
+import { createStorefrontRevalidator } from '../lib/storefront-revalidate.js'
 import { authRepository } from '../modules/auth/auth.repository.js'
 import { AuthService } from '../modules/auth/auth.service.js'
 import { categoriesRepository } from '../modules/categories/categories.repository.js'
@@ -50,6 +51,10 @@ export function createServices(deps: {
   imagekit: ImageKitClient
   logger: FastifyBaseLogger
   repositories?: Partial<Repositories> | undefined
+  /** Test seam for the storefront webhook call. */
+  fetch?: typeof fetch | undefined
+  /** Serverless hook that keeps the webhook call alive after the response (Vercel waitUntil). */
+  waitUntil?: ((promise: Promise<unknown>) => void) | undefined
 }): Services {
   const repos: Repositories = {
     auth: authRepository,
@@ -64,12 +69,19 @@ export function createServices(deps: {
 
   const uploads = new UploadsService(deps.imagekit, { verifyUploads: deps.config.imagekit.verifyUploads })
   const assets = new AssetCleanupService(deps.db, repos.assetCleanup, deps.imagekit, deps.logger)
+  const revalidator = createStorefrontRevalidator({
+    url: deps.config.storefront.revalidateUrl,
+    secret: deps.config.storefront.revalidateSecret,
+    logger: deps.logger,
+    fetch: deps.fetch,
+    waitUntil: deps.waitUntil,
+  })
 
   return {
     auth: new AuthService(deps.db, repos.auth),
-    products: new ProductsService(deps.db, repos.products, uploads, assets),
-    categories: new CategoriesService(deps.db, repos.categories),
-    orders: new OrdersService(deps.db, repos.orders, deps.config.commerce),
+    products: new ProductsService(deps.db, repos.products, uploads, assets, revalidator),
+    categories: new CategoriesService(deps.db, repos.categories, revalidator),
+    orders: new OrdersService(deps.db, repos.orders, deps.config.commerce, revalidator),
     customers: new CustomersService(deps.db, repos.customers),
     dashboard: new DashboardService(deps.db, repos.dashboard, repos.orders),
     uploads,

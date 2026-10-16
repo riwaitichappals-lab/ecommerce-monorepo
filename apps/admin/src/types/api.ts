@@ -114,6 +114,8 @@ export interface ProductListItem {
   price: number
   compareAtPrice: number | null
   stock: number
+  isFeatured: boolean
+  isBestSeller: boolean
   category: CategoryRef | null
   primaryImageUrl: string | null
   colorCount: number
@@ -134,6 +136,8 @@ export interface Product {
   category: CategoryRef | null
   status: ProductStatus
   stock: number
+  isFeatured: boolean
+  isBestSeller: boolean
   publishedAt: string | null
   createdAt: string
   updatedAt: string
@@ -151,6 +155,8 @@ export interface ProductInput {
   categoryId: string | null
   status: ProductStatus
   stock: number
+  isFeatured: boolean
+  isBestSeller: boolean
 }
 
 export interface ColorInput {
@@ -181,6 +187,8 @@ export type ProductSort =
   | 'name-desc'
   | 'price-asc'
   | 'price-desc'
+  | 'featured'
+  | 'best-seller'
 
 export interface ProductListParams {
   page?: number

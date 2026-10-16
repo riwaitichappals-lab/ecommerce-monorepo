@@ -21,6 +21,9 @@ export const searchQuery = z
   .optional()
   .transform((value) => (value ? value : undefined))
 
+/** Boolean query-string flag: only the literal strings "true" / "false" are accepted. */
+export const queryBoolean = z.enum(['true', 'false']).transform((value) => value === 'true')
+
 export const uuidParam = z.uuid({ error: 'Must be a valid UUID' })
 
 export const idParams = z.object({ id: uuidParam })

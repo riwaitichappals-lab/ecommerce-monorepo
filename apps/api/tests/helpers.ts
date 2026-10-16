@@ -135,7 +135,10 @@ export interface TestApp {
   tokenVerifier: TokenVerifier
 }
 
-export async function buildTestApp(configOverrides: Record<string, string> = {}): Promise<TestApp> {
+export async function buildTestApp(
+  configOverrides: Record<string, string> = {},
+  extraDeps: { fetch?: typeof fetch } = {},
+): Promise<TestApp> {
   const repos = mockRepositories()
   repos.auth.findAdminProfileById.mockImplementation(async (_sql: unknown, id: string) => PROFILES[id] ?? null)
   repos.assetCleanup.enqueue.mockResolvedValue(undefined)
@@ -148,6 +151,7 @@ export async function buildTestApp(configOverrides: Record<string, string> = {})
     tokenVerifier,
     imagekit,
     repositories: repos as unknown as Partial<Repositories>,
+    ...extraDeps,
   })
   await app.ready()
   return { app, repos, imagekit, tokenVerifier }
@@ -180,6 +184,8 @@ export function productRecord(overrides: Record<string, unknown> = {}) {
     category: { id: IDS.category, name: 'Shirts', slug: 'shirts' },
     status: 'published',
     stock: 12,
+    isFeatured: false,
+    isBestSeller: false,
     publishedAt: new Date('2026-09-01T00:00:00Z'),
     createdAt: new Date('2026-09-01T00:00:00Z'),
     updatedAt: new Date('2026-09-02T00:00:00Z'),

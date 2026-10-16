@@ -35,7 +35,8 @@ Query:
 | `search` | string ≤ 200 | — | name or SKU, case-insensitive substring |
 | `category` | slug | — | active category slug |
 | `minPrice`, `maxPrice` | number ≥ 0 | — | inclusive; `minPrice ≤ maxPrice` |
-| `sort` | `newest` \| `price-asc` \| `price-desc` \| `name-asc` | `newest` | |
+| `featured` | `true` \| `false` | — | only featured / only non-featured products |
+| `sort` | `newest` \| `price-asc` \| `price-desc` \| `name-asc` \| `featured` \| `best-seller` | `newest` | `featured` and `best-seller` put flagged products first (newest first within each group) |
 
 Response `200`:
 
@@ -100,7 +101,7 @@ Response `200`:
 }
 ```
 
-Colors and images are ordered by `sortOrder`. Not exposed: status, stock count, ImageKit file ids, internal category id, timestamps.
+Colors and images are ordered by `sortOrder`. Every storefront product and list item also carries `isFeatured` and `isBestSeller` booleans (the "best seller" tag). Not exposed: status, stock count, ImageKit file ids, internal category id, timestamps.
 
 Errors: `404 NOT_FOUND` if the slug doesn't exist or the product isn't published; `422` if the slug is malformed.
 
@@ -112,7 +113,7 @@ Errors: `404 NOT_FOUND` if the slug doesn't exist or the product isn't published
 
 All products (any status). `Cache-Control: no-store`.
 
-Query: `page`, `pageSize`, `search` (name/SKU), `status` (`draft|published|archived`), `categoryId` (uuid), `sort` (`updated-desc` default | `created-desc` | `name-asc` | `name-desc` | `price-asc` | `price-desc`).
+Query: `page`, `pageSize`, `search` (name/SKU), `status` (`draft|published|archived`), `categoryId` (uuid), `featured` (`true|false`), `sort` (`updated-desc` default | `created-desc` | `name-asc` | `name-desc` | `price-asc` | `price-desc` | `featured` | `best-seller`). List items and product details include `isFeatured` and `isBestSeller`.
 
 Response `200` item:
 
@@ -188,6 +189,8 @@ Body:
 | `categoryId` | uuid \| null | | must exist |
 | `status` | `draft` \| `published` \| `archived` | | default `draft`; `published` requires colors with images |
 | `stock` | int | | 0–1,000,000, default 0 |
+| `isFeatured` | boolean | | default `false`; also accepted by `PATCH` |
+| `isBestSeller` | boolean | | default `false`; "best seller" tag, also accepted by `PATCH` |
 | `colors` | array ≤ 30 | | `{ name (1–50, unique per product), hexValue, sortOrder?, images: NewImage[] ≤ 20 }` |
 
 ```json

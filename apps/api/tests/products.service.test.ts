@@ -16,7 +16,8 @@ function setup(options: { verifyUploads?: boolean } = {}) {
   const db = fakeDatabase()
   const uploads = new UploadsService(imagekit, { verifyUploads: options.verifyUploads ?? true })
   const assets = new AssetCleanupService(db, assetRepo, imagekit, silentLogger)
-  const service = new ProductsService(db, repo, uploads, assets)
+  const revalidator = { revalidateStorefront: vi.fn() }
+  const service = new ProductsService(db, repo, uploads, assets, revalidator)
 
   repo.findById.mockResolvedValue(productRecord())
   repo.categoryExists.mockResolvedValue(true)
@@ -31,7 +32,7 @@ function setup(options: { verifyUploads?: boolean } = {}) {
   assetRepo.complete.mockResolvedValue(undefined)
   assetRepo.fail.mockResolvedValue(undefined)
 
-  return { service, repo, assetRepo, imagekit }
+  return { service, repo, assetRepo, imagekit, revalidator }
 }
 
 const image = (fileId: string, extra: Record<string, unknown> = {}) => ({
@@ -50,6 +51,8 @@ const baseInput = {
   categoryId: IDS.category,
   status: 'draft' as const,
   stock: 10,
+  isFeatured: false,
+  isBestSeller: false,
   colors: [],
 }
 
@@ -122,14 +125,14 @@ describe('ProductsService.create', () => {
 describe('ProductsService.update', () => {
   it('validates compareAtPrice against the stored price when only one side changes', async () => {
     const { service, repo } = setup()
-    repo.lockProduct.mockResolvedValue({ id: IDS.product, status: 'draft', price: 25, compareAtPrice: 30, publishedAt: null })
+    repo.lockProduct.mockResolvedValue({ id: IDS.product, slug: 'classic-t-shirt', status: 'draft', price: 25, compareAtPrice: 30, publishedAt: null })
     await expect(service.update(IDS.product, { price: 40 })).rejects.toMatchObject({ statusCode: 422 })
     expect(repo.updateProduct).not.toHaveBeenCalled()
   })
 
   it('updates scalar fields and returns the refreshed product', async () => {
     const { service, repo } = setup()
-    repo.lockProduct.mockResolvedValue({ id: IDS.product, status: 'draft', price: 25, compareAtPrice: null, publishedAt: null })
+    repo.lockProduct.mockResolvedValue({ id: IDS.product, slug: 'classic-t-shirt', status: 'draft', price: 25, compareAtPrice: null, publishedAt: null })
     await service.update(IDS.product, { name: 'Renamed', stock: 3 })
     expect(repo.updateProduct).toHaveBeenCalledWith(expect.anything(), IDS.product, { name: 'Renamed', stock: 3 })
     expect(repo.findById).toHaveBeenCalled()
@@ -143,7 +146,7 @@ describe('ProductsService.update', () => {
 
   it('blocks publishing when a color has no images', async () => {
     const { service, repo } = setup()
-    repo.lockProduct.mockResolvedValue({ id: IDS.product, status: 'draft', price: 25, compareAtPrice: null, publishedAt: null })
+    repo.lockProduct.mockResolvedValue({ id: IDS.product, slug: 'classic-t-shirt', status: 'draft', price: 25, compareAtPrice: null, publishedAt: null })
     repo.colorImageCounts.mockResolvedValue([
       { colorId: IDS.colorBlack, imageCount: 2 },
       { colorId: IDS.colorWhite, imageCount: 0 },
@@ -156,7 +159,7 @@ describe('ProductsService.update', () => {
 
   it('syncs colors: updates kept ones, deletes dropped ones and queues their ImageKit files', async () => {
     const { service, repo, assetRepo, imagekit } = setup()
-    repo.lockProduct.mockResolvedValue({ id: IDS.product, status: 'draft', price: 25, compareAtPrice: null, publishedAt: null })
+    repo.lockProduct.mockResolvedValue({ id: IDS.product, slug: 'classic-t-shirt', status: 'draft', price: 25, compareAtPrice: null, publishedAt: null })
     repo.colorImageMap.mockResolvedValue([
       { colorId: IDS.colorBlack, images: [{ id: IDS.image1, imageKitFileId: 'file_black_1' }, { id: IDS.image2, imageKitFileId: 'file_black_2' }] },
       { colorId: IDS.colorWhite, images: [{ id: IDS.image3, imageKitFileId: 'file_white_1' }] },
@@ -185,7 +188,7 @@ describe('ProductsService.update', () => {
 
   it('rejects a color id that belongs to another product', async () => {
     const { service, repo } = setup()
-    repo.lockProduct.mockResolvedValue({ id: IDS.product, status: 'draft', price: 25, compareAtPrice: null, publishedAt: null })
+    repo.lockProduct.mockResolvedValue({ id: IDS.product, slug: 'classic-t-shirt', status: 'draft', price: 25, compareAtPrice: null, publishedAt: null })
     repo.colorImageMap.mockResolvedValue([])
     await expect(
       service.update(IDS.product, { colors: [{ id: IDS.colorBlack, name: 'Black', hexValue: '#000000', images: [] }] }),
@@ -196,7 +199,7 @@ describe('ProductsService.update', () => {
 describe('ProductsService colors', () => {
   it('adds a color with images and returns it', async () => {
     const { service, repo } = setup()
-    repo.lockProduct.mockResolvedValue({ id: IDS.product, status: 'draft', price: 25, compareAtPrice: null, publishedAt: null })
+    repo.lockProduct.mockResolvedValue({ id: IDS.product, slug: 'classic-t-shirt', status: 'draft', price: 25, compareAtPrice: null, publishedAt: null })
     repo.nextColorSortOrder.mockResolvedValue(2)
     repo.insertColor.mockResolvedValue(IDS.colorWhite)
 
@@ -209,14 +212,14 @@ describe('ProductsService colors', () => {
 
   it('requires images when adding a color to a published product', async () => {
     const { service, repo } = setup()
-    repo.lockProduct.mockResolvedValue({ id: IDS.product, status: 'published', price: 25, compareAtPrice: null, publishedAt: new Date() })
+    repo.lockProduct.mockResolvedValue({ id: IDS.product, slug: 'classic-t-shirt', status: 'published', price: 25, compareAtPrice: null, publishedAt: new Date() })
     await expect(service.addColor(IDS.product, { name: 'Blue', hexValue: '#0000FF', images: [] })).rejects.toMatchObject({ statusCode: 422 })
     expect(repo.insertColor).not.toHaveBeenCalled()
   })
 
   it('maps a duplicate color name to 409', async () => {
     const { service, repo } = setup()
-    repo.lockProduct.mockResolvedValue({ id: IDS.product, status: 'draft', price: 25, compareAtPrice: null, publishedAt: null })
+    repo.lockProduct.mockResolvedValue({ id: IDS.product, slug: 'classic-t-shirt', status: 'draft', price: 25, compareAtPrice: null, publishedAt: null })
     repo.nextColorSortOrder.mockResolvedValue(0)
     repo.insertColor.mockRejectedValue(
       Object.assign(new Error('dup'), { name: 'PostgresError', code: '23505', constraint_name: 'product_colors_product_name_key' }),
@@ -226,7 +229,7 @@ describe('ProductsService colors', () => {
 
   it('will not delete the last color of a published product', async () => {
     const { service, repo } = setup()
-    repo.lockProduct.mockResolvedValue({ id: IDS.product, status: 'published', price: 25, compareAtPrice: null, publishedAt: new Date() })
+    repo.lockProduct.mockResolvedValue({ id: IDS.product, slug: 'classic-t-shirt', status: 'published', price: 25, compareAtPrice: null, publishedAt: new Date() })
     repo.findColor.mockResolvedValue({ id: IDS.colorBlack })
     repo.colorImageCounts.mockResolvedValue([{ colorId: IDS.colorBlack, imageCount: 1 }])
     await expect(service.deleteColor(IDS.product, IDS.colorBlack)).rejects.toBeInstanceOf(AppError)
@@ -334,7 +337,7 @@ describe('ProductsService images', () => {
 describe('ProductsService.delete', () => {
   it('deletes the product and queues every image asset for cleanup', async () => {
     const { service, repo, assetRepo } = setup()
-    repo.lockProduct.mockResolvedValue({ id: IDS.product, status: 'draft', price: 25, compareAtPrice: null, publishedAt: null })
+    repo.lockProduct.mockResolvedValue({ id: IDS.product, slug: 'classic-t-shirt', status: 'draft', price: 25, compareAtPrice: null, publishedAt: null })
     repo.listImageFileIdsForProduct.mockResolvedValue(['f1', 'f2'])
     await service.delete(IDS.product)
     expect(repo.deleteProduct).toHaveBeenCalledWith(expect.anything(), IDS.product)

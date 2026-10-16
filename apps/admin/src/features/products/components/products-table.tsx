@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ActionIcon, Avatar, ColorSwatch, Group, Menu, Table, Text } from '@mantine/core'
+import { ActionIcon, Avatar, Badge, ColorSwatch, Group, Menu, Table, Text } from '@mantine/core'
 import {
   IconArchive,
   IconDots,
@@ -114,7 +114,19 @@ export function ProductsTable({ products, loading }: ProductsTableProps) {
                   </Text>
                 </Table.Td>
                 <Table.Td>
-                  <ProductStatusBadge status={product.status} />
+                  <Group gap={4}>
+                    <ProductStatusBadge status={product.status} />
+                    {product.isFeatured && (
+                      <Badge variant="light" color="violet">
+                        Featured
+                      </Badge>
+                    )}
+                    {product.isBestSeller && (
+                      <Badge variant="light" color="orange">
+                        Best seller
+                      </Badge>
+                    )}
+                  </Group>
                 </Table.Td>
                 <Table.Td>
                   <Menu shadow="md" position="bottom-end" width={190}>

@@ -60,6 +60,10 @@ const envSchema = z.object({
 
   ASSET_CLEANUP_INTERVAL_MS: z.coerce.number().int().nonnegative().default(300_000),
   ENABLE_API_DOCS: booleanString.optional(),
+
+  /** Storefront cache-purge webhook. Both must be set, otherwise purging is skipped. */
+  FRONTEND_REVALIDATE_URL: z.url().optional(),
+  REVALIDATE_SECRET: z.string().min(1).optional(),
 })
 
 export type Env = z.infer<typeof envSchema>
@@ -86,6 +90,7 @@ export interface AppConfig {
   commerce: { currency: string; shippingFlatRate: number; freeShippingThreshold: number }
   assetCleanupIntervalMs: number
   apiDocsEnabled: boolean
+  storefront: { revalidateUrl: string | undefined; revalidateSecret: string | undefined }
 }
 
 export function parseConfig(source: NodeJS.ProcessEnv): AppConfig {
@@ -136,6 +141,7 @@ export function parseConfig(source: NodeJS.ProcessEnv): AppConfig {
     },
     assetCleanupIntervalMs: env.ASSET_CLEANUP_INTERVAL_MS,
     apiDocsEnabled: env.ENABLE_API_DOCS ?? !isProduction,
+    storefront: { revalidateUrl: env.FRONTEND_REVALIDATE_URL, revalidateSecret: env.REVALIDATE_SECRET },
   }
 }
 

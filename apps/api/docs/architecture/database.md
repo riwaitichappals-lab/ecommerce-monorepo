@@ -99,5 +99,6 @@ Network calls (ImageKit verification and deletion) are **never** made while a tr
 | Migration | Summary |
 | --- | --- |
 | `0001_initial_schema.sql` | All tables, enums, triggers, indexes, RLS lockdown |
+| `0002_product_featured_best_seller.sql` | `products.is_featured`, `products.is_best_seller` + partial indexes |
 
 Run with `npm run db:migrate` (`-- --status` to list). Migration rules: [contributing.md](../development/contributing.md#migrations).

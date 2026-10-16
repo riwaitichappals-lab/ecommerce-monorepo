@@ -1,18 +1,22 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
+  ActionIcon,
   Button,
   Group,
   NumberInput,
   Paper,
   Select,
   Stack,
+  Switch,
   Textarea,
   TextInput,
 } from '@mantine/core'
 import { useForm } from '@mantine/form'
+import { IconRefresh } from '@tabler/icons-react'
 import { zod4Resolver } from 'mantine-form-zod-resolver'
 import { ApiError } from '@/lib/api/client'
 import { currencySymbol } from '@/lib/format'
+import { buildSku, randomSkuSuffix } from '@/lib/sku'
 import { productFormSchema, slugify, type ProductFormValues } from '@/schemas/product.schema'
 import { useCurrency } from '@/features/dashboard/hooks/use-currency'
 import { useCategoryOptions } from '@/features/categories/hooks/use-categories'
@@ -38,6 +42,8 @@ function toFormValues(product?: Product): ProductFormValues {
     categoryId: product?.categoryId ?? null,
     status: product?.status ?? 'draft',
     stock: product?.stock ?? 0,
+    isFeatured: product?.isFeatured ?? false,
+    isBestSeller: product?.isBestSeller ?? false,
   }
 }
 
@@ -51,11 +57,20 @@ export function ProductForm({
   const currency = useCurrency()
   const { data: categories } = useCategoryOptions()
   const [slugTouched, setSlugTouched] = useState(Boolean(product))
+  // New products get a generated SKU; typing in the field switches auto-generation off.
+  const [skuTouched, setSkuTouched] = useState(Boolean(product))
+  const [skuSuffix, setSkuSuffix] = useState(randomSkuSuffix)
 
   const form = useForm<ProductFormValues>({
-    initialValues: toFormValues(product),
+    initialValues: product ? toFormValues(product) : { ...toFormValues(), sku: buildSku('', skuSuffix) },
     validate: zod4Resolver(productFormSchema),
   })
+
+  // Publishing from the page header changes the status outside this form: keep the select in sync.
+  useEffect(() => {
+    if (product) form.setFieldValue('status', product.status)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product?.status])
 
   const categoryOptions = (categories ?? []).map((category) => ({
     value: category.id,
@@ -76,6 +91,20 @@ export function ProductForm({
       // 409s name the clashing field in the message ("... slug already exists").
       if (error.isConflict) {
         const field = /sku/i.test(error.message) ? 'sku' : 'slug'
+        if (field === 'sku' && !product && !skuTouched) {
+          // Generated SKU collided (very unlikely): draw a new one and try once more.
+          const nextSuffix = randomSkuSuffix()
+          setSkuSuffix(nextSuffix)
+          const sku = buildSku(values.name, nextSuffix)
+          form.setFieldValue('sku', sku)
+          try {
+            await onSubmit({ ...values, sku })
+            form.resetDirty({ ...values, sku })
+          } catch (retryError) {
+            if (retryError instanceof ApiError) form.setErrors(retryError.fieldErrors)
+          }
+          return
+        }
         form.setFieldError(field, error.message)
       }
     }
@@ -97,6 +126,7 @@ export function ProductForm({
                   const name = e.currentTarget.value
                   form.setFieldValue('name', name)
                   if (!slugTouched) form.setFieldValue('slug', slugify(name))
+                  if (!skuTouched) form.setFieldValue('sku', buildSku(name, skuSuffix))
                 }}
                 error={form.errors.name}
               />
@@ -121,7 +151,33 @@ export function ProductForm({
             />
 
             <Group grow align="flex-start">
-              <TextInput label="SKU" required {...form.getInputProps('sku')} />
+              <TextInput
+                label="SKU"
+                description={product ? undefined : 'Generated automatically, edit if you prefer'}
+                required
+                {...form.getInputProps('sku')}
+                onChange={(e) => {
+                  setSkuTouched(true)
+                  form.setFieldValue('sku', e.currentTarget.value)
+                }}
+                rightSection={
+                  product || readOnly ? undefined : (
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      aria-label="Generate a new SKU"
+                      onClick={() => {
+                        const nextSuffix = randomSkuSuffix()
+                        setSkuSuffix(nextSuffix)
+                        setSkuTouched(false)
+                        form.setFieldValue('sku', buildSku(form.values.name, nextSuffix))
+                      }}
+                    >
+                      <IconRefresh size={16} />
+                    </ActionIcon>
+                  )
+                }
+              />
               <Select
                 label="Category"
                 placeholder="No category"
@@ -172,6 +228,19 @@ export function ProductForm({
                 min={0}
                 allowDecimal={false}
                 {...form.getInputProps('stock')}
+              />
+            </Group>
+
+            <Group gap="xl">
+              <Switch
+                label="Featured"
+                description="Show in featured sections on the storefront"
+                {...form.getInputProps('isFeatured', { type: 'checkbox' })}
+              />
+              <Switch
+                label="Best seller"
+                description="Show the best seller tag on the storefront"
+                {...form.getInputProps('isBestSeller', { type: 'checkbox' })}
               />
             </Group>
           </Stack>
